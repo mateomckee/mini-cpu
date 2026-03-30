@@ -8,84 +8,100 @@
 #define MIN_ARGS 17
 
 //Group 1
-//Mateo McKee, Elian Garcia, Chinedum Akunne, Ayden Trevino
+//Mateo McKee, Elian Garcia Gonzalez, Chinedum Akunne, Ayden Trevino
 
 SimConfig* read_args(int argc, char* argv[]) {
     SimConfig* sim_config = (SimConfig*)malloc(sizeof(SimConfig));
+    if(sim_config == NULL) {
+        fprintf(stderr, "Error: Memory allocation failed.\n");
+        exit(1);
+    }
 
     int temp = 0;
     char* endptr;
 
-    //cache size
-    temp = (int)strtol(argv[2], &endptr, 10); 
-    if(*endptr != '\0' || temp < 8 || temp > 8192 || ((temp & (temp-1)) != 0)) {
-        fprintf(stderr, "Error: Invalid cache size %s. Must be a power of 2 integer between 8 and 8192.\n", argv[2]);
-        exit(1);
+    for(int i = 1; i < argc; i++) {
+        if(strcmp(argv[i], "–s") == 0) {
+            //cache size
+            temp = (int)strtol(argv[++i], &endptr, 10);
+            if(*endptr != '\0' || temp < 8 || temp > 8192 || ((temp & (temp-1)) != 0)) {
+                fprintf(stderr, "Error: Invalid cache size %s. Must be a power of 2 integer between 8 and 8192.\n", argv[2]);
+                exit(1);
+            }
+            sim_config->cache_size = temp;
+        }else if(strcmp(argv[i], "–b") == 0) {
+            //block size
+            temp = (int)strtol(argv[++i], &endptr, 10);
+            if(*endptr != '\0' || temp < 8 || temp > 64 || ((temp & (temp-1)) != 0)) {
+                fprintf(stderr, "Error: Invalid block size %s. Must be a power of 2 integer between 8 and 64.\n", argv[4]);
+                exit(1);
+            }
+            sim_config->block_size = temp;
+        }else if(strcmp(argv[i], "–a") == 0) {
+            //associativity
+            temp = (int)strtol(argv[++i], &endptr, 10);
+            if(*endptr != '\0' || temp > 16 || temp < 1 || ((temp & (temp-1)) != 0)) {
+                fprintf(stderr, "Error: Invalid associativity %s. Must be either 1, 2, 4, 8, 16.\n", argv[6]);
+                exit(1);
+            }
+            sim_config->associativity = temp;
+        }else if(strcmp(argv[i], "–r") == 0) {
+            //replacement policy
+            i++;
+            if(strcmp(argv[i], "rr") != 0 && strcmp(argv[i], "rnd") != 0) {
+                fprintf(stderr, "Error: Invalid replacement policy \"%s\". Must be either \"rr\" or \"rnd\".\n", argv[8]);
+                exit(1);
+            }
+
+            //Making sure the string literals are exactly the same as the project guidelines
+            if (strcmp(argv[8], "rr") == 0) {
+                sim_config->replacement_policy = "Round Robin";
+            }else {
+                sim_config->replacement_policy = argv[8];
+            }
+            //sim_config->replacement_policy = argv[8];
+        }else if(strcmp(argv[i], "–p") == 0) {
+            //physical memory
+            temp = (int)strtol(argv[++i], &endptr, 10);
+            if(*endptr != '\0' || temp < 128 || temp > 4000 || ((temp & (temp-1)) != 0)) {
+                fprintf(stderr, "Error: Invalid physical memory %s. Must be a power of 2 integer between 128 and 4096.\n", argv[10]);
+                exit(1);
+            }
+            sim_config->physical_memory = temp;
+        }else if(strcmp(argv[i], "–u") == 0) {
+            //physical memory usage percentage
+            temp = (int)strtol(argv[++i], &endptr, 10);
+            if(*endptr != '\0' || temp < 0 || temp > 100) {
+                fprintf(stderr, "Error: Invalid physical memory usage percentage %s. Must be an integer between 0 and 100.\n", argv[12]);
+                exit(1);
+            }
+            sim_config->physical_memory_usage_percentage = temp;
+        }else if(strcmp(argv[i], "–n") == 0) {
+            //instruction/timeslice
+            float f_temp = strtof(argv[++i], &endptr);
+            if(*endptr != '\0' || f_temp < 1 || f_temp > 100) {
+                fprintf(stderr, "Error: Invalid instructions per timeslice %s. Must be a float between 0 and 100.\n", argv[14]);
+                exit(1);
+            }
+            sim_config->instructions_per_timeslice = f_temp;
+        }else if(strcmp(argv[i], "-f") == 0){
+            //trace files (min 1, max 3)
+            int num_trace_files = (argc - MIN_ARGS)/2 + 1;
+
+            //cap num of trace files to max amount in order to control user input
+            if(num_trace_files > MAX_TRC_FILES) {
+                num_trace_files = MAX_TRC_FILES;
+            }
+
+            sim_config->num_trace_files = num_trace_files;
+
+            int i;
+            for(i = 0; i < num_trace_files; i++) {
+                *(sim_config->trace_files+i) = argv[16+(2*i)];
+            }
+            break;
+        }
     }
-    sim_config->cache_size = temp;
-
-    //block size
-    temp = (int)strtol(argv[4], &endptr, 10); 
-    if(*endptr != '\0' || temp < 8 || temp > 64 || ((temp & (temp-1)) != 0)) {
-        fprintf(stderr, "Error: Invalid block size %s. Must be a power of 2 integer between 8 and 64.\n", argv[4]);
-        exit(1);
-    }
-    sim_config->block_size = temp;
-
-    //associativity
-    temp = (int)strtol(argv[6], &endptr, 10); 
-    if(*endptr != '\0' || temp > 16 || temp < 1 || ((temp & (temp-1)) != 0)) {
-        fprintf(stderr, "Error: Invalid associativity %s. Must be either 1, 2, 4, 8, 16.\n", argv[6]);
-        exit(1);
-    }
-    sim_config->associativity = temp;
-
-    //replacement policy
-    if(strcmp(argv[8], "rr") != 0 && strcmp(argv[8], "rnd") != 0) {
-        fprintf(stderr, "Error: Invalid replacement policy \"%s\". Must be either \"rr\" or \"rnd\".\n", argv[8]);
-        exit(1);
-    }
-    sim_config->replacement_policy = argv[8];
-
-    //physical memory
-    temp = (int)strtol(argv[10], &endptr, 10); 
-    if(*endptr != '\0' || temp < 128 || temp > 4000 || ((temp & (temp-1)) != 0)) {
-        fprintf(stderr, "Error: Invalid physical memory %s. Must be a power of 2 integer between 128 and 4096.\n", argv[10]);
-        exit(1);
-    }
-    sim_config->physical_memory = temp;
-
-    //physical memory usage percentage
-    temp = (int)strtol(argv[12], &endptr, 10); 
-    if(*endptr != '\0' || temp < 0 || temp > 100) {
-        fprintf(stderr, "Error: Invalid physical memory usage percentage %s. Must be an integer between 0 and 100.\n", argv[12]);
-        exit(1);
-    }
-    sim_config->physical_memory_usage_percentage = temp;
-
-    //instruction/timeslice
-    float f_temp = strtof(argv[14], &endptr); 
-    if(*endptr != '\0' || f_temp < 1 || f_temp > 100) {
-        fprintf(stderr, "Error: Invalid instructions per timeslice %s. Must be a float between 0 and 100.\n", argv[14]);
-        exit(1);
-    }
-    sim_config->instructions_per_timeslice = f_temp;
-
-    //trace files (min 1, max 3)
-    int num_trace_files = (argc - MIN_ARGS)/2 + 1;
-    
-    //cap num of trace files to max amount in order to control user input
-    if(num_trace_files > MAX_TRC_FILES) {
-        num_trace_files = MAX_TRC_FILES;
-    }
-
-    sim_config->num_trace_files = num_trace_files;
-
-    int i;
-    for(i = 0; i < num_trace_files; i++) {
-        *(sim_config->trace_files+i) = argv[16+(2*i)];
-    }
-
     return sim_config;
 }
 
