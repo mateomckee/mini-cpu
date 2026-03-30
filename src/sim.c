@@ -73,7 +73,12 @@ SimConfig* read_args(int argc, char* argv[]) {
 
     //trace files (min 1, max 3)
     int num_trace_files = (argc - MIN_ARGS)/2 + 1;
- 
+    
+    //cap num of trace files to max amount in order to control user input
+    if(num_trace_files > MAX_TRC_FILES) {
+        num_trace_files = MAX_TRC_FILES;
+    }
+
     sim_config->num_trace_files = num_trace_files;
 
     int i;
@@ -138,7 +143,7 @@ void print_milestone1(SimConfig* sim_config, CacheCalc* cache_calc, PhysicalCalc
     printf("CPU Simulator - CS 3853 - Team #01\n\n");
 
     printf("Trace File(s):\n");
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < sim_config->num_trace_files; i++)
         if (sim_config->trace_files[i] != NULL)
             printf("\t%s\n", sim_config->trace_files[i]);
 

@@ -1,3 +1,5 @@
+#define MAX_TRC_FILES 3
+
 typedef struct {
     int cache_size;
     int block_size;
@@ -6,7 +8,7 @@ typedef struct {
     int physical_memory;
     float physical_memory_usage_percentage;
     float instructions_per_timeslice;
-    char* trace_files[3];
+    char* trace_files[MAX_TRC_FILES];
     int num_trace_files;
 } SimConfig;
 
