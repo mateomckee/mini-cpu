@@ -7,4 +7,22 @@ typedef struct {
     float physical_memory_usage_percentage;
     float instructions_per_timeslice;
     char* trace_files[3];
+    int num_trace_files;
 } SimConfig;
+
+typedef struct {
+    int index_bits;
+    int tag_bits;
+    int total_rows;
+    int total_blocks;
+    int overhead_bytes; 
+    int implementation_bytes; 
+    float cost;
+} CacheCalc;
+
+typedef struct {
+    int num_physical_pages;
+    int num_system_pages;
+    int pte_bits;
+    int page_table_bytes;
+} PhysicalCalc;
