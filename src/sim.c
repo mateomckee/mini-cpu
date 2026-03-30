@@ -156,37 +156,37 @@ PhysicalCalc* calculate_physical(SimConfig* sim_config) {
 
 // print method AI generated because no way im formatting all that
 void print_milestone1(SimConfig* sim_config, CacheCalc* cache_calc, PhysicalCalc* physical_calc) {
-    printf("CPU Simulator - CS 3853 - Team #01\n\n");
+    printf("Cache Simulator - CS 3853 – Team #01\n\n");
 
     printf("Trace File(s):\n");
     for (int i = 0; i < sim_config->num_trace_files; i++)
         if (sim_config->trace_files[i] != NULL)
-            printf("\t%s\n", sim_config->trace_files[i]);
+            printf("%-8s%s\n", "", sim_config->trace_files[i]);
 
     printf("\n***** Cache Input Parameters *****\n\n");
-    printf("%-30s %d KB\n",    "Cache Size:",                    sim_config->cache_size);
-    printf("%-30s %d bytes\n", "Block Size:",                    sim_config->block_size);
-    printf("%-30s %d\n",       "Associativity:",                 sim_config->associativity);
-    printf("%-30s %s\n",       "Replacement Policy:",            sim_config->replacement_policy);
-    printf("%-30s %d MB\n",    "Physical Memory:",               sim_config->physical_memory);
-    printf("%-30s %.1f%%\n",   "Percent Memory Used by System:", sim_config->physical_memory_usage_percentage);
-    printf("%-30s %.0f\n",     "Instructions / Time Slice:",     sim_config->instructions_per_timeslice);
+    printf("%-30s  %d KB\n",    "Cache Size:",                    sim_config->cache_size);
+    printf("%-30s  %d bytes\n", "Block Size:",                    sim_config->block_size);
+    printf("%-30s  %d\n",       "Associativity:",                 sim_config->associativity);
+    printf("%-30s  %s\n",       "Replacement Policy:",            sim_config->replacement_policy);
+    printf("%-30s  %d MB\n",    "Physical Memory:",               sim_config->physical_memory);
+    printf("%-30s  %.1f%%\n",   "Percent Memory Used by System:", sim_config->physical_memory_usage_percentage);
+    printf("%-30s  %.0f\n",     "Instructions / Time Slice:",     sim_config->instructions_per_timeslice);
 
     printf("\n***** Cache Calculated Values *****\n\n");
-    printf("%-30s %d\n",          "Total # Blocks:",              cache_calc->total_blocks);
-    printf("%-30s %d bits\n",     "Tag Size:",                    cache_calc->tag_bits);
-    printf("%-30s %d bits\n",     "Index Size:",                  cache_calc->index_bits);
-    printf("%-30s %d\n",          "Total # Rows:",                cache_calc->total_rows);
-    printf("%-30s %d bytes\n",    "Overhead Size:",               cache_calc->overhead_bytes);
-    printf("%-30s %.2f KB  (%d bytes)\n", "Implementation Memory Size:",
+    printf("%-30s  %d\n",          "Total # Blocks:",              cache_calc->total_blocks);
+    printf("%-30s  %d bits\n",     "Tag Size:",                    cache_calc->tag_bits);
+    printf("%-30s  %d bits\n",     "Index Size:",                  cache_calc->index_bits);
+    printf("%-30s  %d\n",          "Total # Rows:",                cache_calc->total_rows);
+    printf("%-30s  %d bytes\n",    "Overhead Size:",               cache_calc->overhead_bytes);
+    printf("%-30s  %.2f KB  (%d bytes)\n", "Implementation Memory Size:",
            cache_calc->implementation_bytes / 1024.0, cache_calc->implementation_bytes);
-    printf("%-30s $%.2f @ $0.07 per KB\n", "Cost:",              cache_calc->cost);
+    printf("%-30s  $%.2f @ $0.07 per KB\n", "Cost:",              cache_calc->cost);
 
     printf("\n***** Physical Memory Calculated Values *****\n\n");
-    printf("%-30s %d\n",       "Number of Physical Pages:",       physical_calc->num_physical_pages);
-    printf("%-30s %d\n",       "Number of Pages for System:",     physical_calc->num_system_pages);
-    printf("%-30s %d bits\n",  "Size of Page Table Entry:",       physical_calc->pte_bits);
-    printf("%-30s %d bytes\n", "Total RAM for Page Table(s):",    physical_calc->page_table_bytes);
+    printf("%-30s  %d\n",       "Number of Physical Pages:",       physical_calc->num_physical_pages);
+    printf("%-30s  %d\n",       "Number of Pages for System:",     physical_calc->num_system_pages);
+    printf("%-30s  %d bits\n",  "Size of Page Table Entry:",       physical_calc->pte_bits);
+    printf("%-30s  %d bytes\n", "Total RAM for Page Table(s):",    physical_calc->page_table_bytes);
 }
 
 
