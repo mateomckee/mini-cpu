@@ -2,90 +2,117 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "sim.h"
 #include <ctype.h>
-
-#define MIN_ARGS 17
+#include "sim.h"
 
 //Group 1
-//Mateo McKee, Elian Garcia, Chinedum Akunne, Ayden Trevino
+//Mateo McKee, Elian Garcia Gonzalez, Chinedum Akunne, Ayden Trevino
 
 SimConfig* read_args(int argc, char* argv[]) {
     SimConfig* sim_config = (SimConfig*)malloc(sizeof(SimConfig));
+    if(sim_config == NULL) {
+        fprintf(stderr, "Error: Memory allocation failed.\n");
+        exit(1);
+    }
+
+    //set defaults
+    sim_config->cache_size = 8;
+    sim_config->block_size = 8;
+    sim_config->associativity = 1;
+    sim_config->replacement_policy = "rr";
+    sim_config->physical_memory = 128;
+    sim_config->physical_memory_usage_percentage = 0;
+    sim_config->instructions_per_timeslice = 0.0f;
+    sim_config->num_trace_files = 0;
 
     int temp = 0;
     char* endptr;
 
-    //cache size
-    temp = (int)strtol(argv[2], &endptr, 10); 
-    if(*endptr != '\0' || temp < 8 || temp > 8192 || ((temp & (temp-1)) != 0)) {
-        fprintf(stderr, "Error: Invalid cache size %s. Must be a power of 2 integer between 8 and 8192.\n", argv[2]);
-        exit(1);
+    for(int i = 1; i < argc-1; i++){
+        if(argv[i][0] != '-') continue;
+
+        char flag = argv[i][1];
+
+        switch(flag) {
+            case 's':
+                temp = (int)strtol(argv[i+1], &endptr, 10);
+                if(*endptr != '\0' || temp < 8 || temp > 8192 || ((temp & (temp-1)) != 0)) {
+                    fprintf(stderr, "Error: Invalid cache size %s. Must be a power of 2 integer between 8 and 8192.\n", argv[i+1]);
+                    exit(1);
+                }
+                sim_config->cache_size = temp;
+                break;
+
+            case 'b':
+                temp = (int)strtol(argv[i+1], &endptr, 10);
+                if(*endptr != '\0' || temp > 64 || temp < 8 || ((temp & (temp-1)) != 0)) {
+                    fprintf(stderr, "Error: Invalid block size %s. Must be a power of 2 integer between 8 and 64.\n", argv[i+1]);
+                    exit(1);
+                }
+                sim_config->block_size = temp;
+                break;
+
+            case 'a':
+                temp = (int)strtol(argv[i+1], &endptr, 10); 
+                if(*endptr != '\0' || temp > 16 || temp < 1 || ((temp & (temp-1)) != 0)) {
+                    fprintf(stderr, "Error: Invalid associativity %s. Must be either 1, 2, 4, 8, 16.\n", argv[i+1]);
+                    exit(1);
+                }
+                sim_config->associativity = temp;
+                break;
+
+            case 'r':
+                if(strcmp(argv[i+1], "rr") != 0 && strcmp(argv[i+1], "rnd") != 0) {
+                    fprintf(stderr, "Error: Invalid replacement policy \"%s\". Must be either \"rr\" or \"rnd\".\n", argv[i+1]);
+                    exit(1);
+                }
+                sim_config->replacement_policy = argv[i+1];
+                break;
+
+            case 'p':
+                temp = (int)strtol(argv[i+1], &endptr, 10);
+                if(*endptr != '\0' || temp < 128 || temp > 4096 || ((temp & (temp-1)) != 0)) {
+                    fprintf(stderr, "Error: Invalid physical memory %s. Must be a power of 2 integer between 128 and 4096.\n", argv[i+1]);
+                    exit(1);
+                }
+                sim_config->physical_memory = temp;
+                break;
+
+            case 'u':
+                temp = (int)strtol(argv[i+1], &endptr, 10);
+                if(*endptr != '\0' || temp < 0 || temp > 100) {
+                    fprintf(stderr, "Error: Invalid physical memory usage percentage %s. Must be an integer between 0 and 100.\n", argv[i+1]);
+                    exit(1);
+                }
+                sim_config->physical_memory_usage_percentage = temp;
+                break;
+
+            case 'n': {
+                float f_temp = strtof(argv[i+1], &endptr);
+                if(*endptr != '\0' || f_temp < 1 || f_temp > 100) {
+                    fprintf(stderr, "Error: Invalid instructions per timeslice %s. Must be a float between 0 and 100.\n", argv[i+1]);
+                    exit(1);
+                }
+                sim_config->instructions_per_timeslice = f_temp;
+                break;
+            }
+
+            case 'f': {
+                sim_config->num_trace_files = (sim_config->num_trace_files)+1;
+                if(sim_config->num_trace_files > MAX_TRC_FILES) {
+                    sim_config->num_trace_files = MAX_TRC_FILES;
+                }
+
+                *(sim_config->trace_files+sim_config->num_trace_files-1) = argv[i+1];
+                break;
+            }
+
+            default:
+                fprintf(stderr, "Error: Invalid flag -%c\n", argv[i][1]);
+                exit(1);
+                break;
+        }
     }
-    sim_config->cache_size = temp;
-
-    //block size
-    temp = (int)strtol(argv[4], &endptr, 10); 
-    if(*endptr != '\0' || temp < 8 || temp > 64 || ((temp & (temp-1)) != 0)) {
-        fprintf(stderr, "Error: Invalid block size %s. Must be a power of 2 integer between 8 and 64.\n", argv[4]);
-        exit(1);
-    }
-    sim_config->block_size = temp;
-
-    //associativity
-    temp = (int)strtol(argv[6], &endptr, 10); 
-    if(*endptr != '\0' || temp > 16 || temp < 1 || ((temp & (temp-1)) != 0)) {
-        fprintf(stderr, "Error: Invalid associativity %s. Must be either 1, 2, 4, 8, 16.\n", argv[6]);
-        exit(1);
-    }
-    sim_config->associativity = temp;
-
-    //replacement policy
-    if(strcmp(argv[8], "rr") != 0 && strcmp(argv[8], "rnd") != 0) {
-        fprintf(stderr, "Error: Invalid replacement policy \"%s\". Must be either \"rr\" or \"rnd\".\n", argv[8]);
-        exit(1);
-    }
-    sim_config->replacement_policy = argv[8];
-
-    //physical memory
-    temp = (int)strtol(argv[10], &endptr, 10); 
-    if(*endptr != '\0' || temp < 128 || temp > 4000 || ((temp & (temp-1)) != 0)) {
-        fprintf(stderr, "Error: Invalid physical memory %s. Must be a power of 2 integer between 128 and 4096.\n", argv[10]);
-        exit(1);
-    }
-    sim_config->physical_memory = temp;
-
-    //physical memory usage percentage
-    temp = (int)strtol(argv[12], &endptr, 10); 
-    if(*endptr != '\0' || temp < 0 || temp > 100) {
-        fprintf(stderr, "Error: Invalid physical memory usage percentage %s. Must be an integer between 0 and 100.\n", argv[12]);
-        exit(1);
-    }
-    sim_config->physical_memory_usage_percentage = temp;
-
-    //instruction/timeslice
-    float f_temp = strtof(argv[14], &endptr); 
-    if(*endptr != '\0' || f_temp < 1 || f_temp > 100) {
-        fprintf(stderr, "Error: Invalid instructions per timeslice %s. Must be a float between 0 and 100.\n", argv[14]);
-        exit(1);
-    }
-    sim_config->instructions_per_timeslice = f_temp;
-
-    //trace files (min 1, max 3)
-    int num_trace_files = (argc - MIN_ARGS)/2 + 1;
-    
-    //cap num of trace files to max amount in order to control user input
-    if(num_trace_files > MAX_TRC_FILES) {
-        num_trace_files = MAX_TRC_FILES;
-    }
-
-    sim_config->num_trace_files = num_trace_files;
-
-    int i;
-    for(i = 0; i < num_trace_files; i++) {
-        *(sim_config->trace_files+i) = argv[16+(2*i)];
-    }
-
     return sim_config;
 }
 
@@ -121,8 +148,8 @@ CacheCalc* calculate_cache(SimConfig* sim_config) {
 }
 
 PhysicalCalc* calculate_physical(SimConfig* sim_config) {
-    int num_physical_pages = sim_config->physical_memory * 1024 * 1024 / 4096;
-    int num_system_pages = sim_config->physical_memory_usage_percentage / 100.0 * num_physical_pages;
+    long num_physical_pages = (long)sim_config->physical_memory * 1024 * 1024 / 4096;
+    long num_system_pages = sim_config->physical_memory_usage_percentage / 100.0 * num_physical_pages;
 
     int physical_page_bits = log2(num_physical_pages);
 
@@ -140,37 +167,37 @@ PhysicalCalc* calculate_physical(SimConfig* sim_config) {
 
 // print method AI generated because no way im formatting all that
 void print_milestone1(SimConfig* sim_config, CacheCalc* cache_calc, PhysicalCalc* physical_calc) {
-    printf("CPU Simulator - CS 3853 - Team #01\n\n");
+    printf("Cache Simulator - CS 3853 – Team #01\n\n");
 
     printf("Trace File(s):\n");
     for (int i = 0; i < sim_config->num_trace_files; i++)
         if (sim_config->trace_files[i] != NULL)
-            printf("\t%s\n", sim_config->trace_files[i]);
+            printf("%-8s%s\n", "", sim_config->trace_files[i]);
 
     printf("\n***** Cache Input Parameters *****\n\n");
-    printf("%-30s %d KB\n",    "Cache Size:",                    sim_config->cache_size);
-    printf("%-30s %d bytes\n", "Block Size:",                    sim_config->block_size);
-    printf("%-30s %d\n",       "Associativity:",                 sim_config->associativity);
-    printf("%-30s %s\n",       "Replacement Policy:",            sim_config->replacement_policy);
-    printf("%-30s %d MB\n",    "Physical Memory:",               sim_config->physical_memory);
-    printf("%-30s %.1f%%\n",   "Percent Memory Used by System:", sim_config->physical_memory_usage_percentage);
-    printf("%-30s %.0f\n",     "Instructions / Time Slice:",     sim_config->instructions_per_timeslice);
+    printf("%-30s  %d KB\n",    "Cache Size:",                    sim_config->cache_size);
+    printf("%-30s  %d bytes\n", "Block Size:",                    sim_config->block_size);
+    printf("%-30s  %d\n",       "Associativity:",                 sim_config->associativity);
+    printf("%-30s  %s\n",       "Replacement Policy:",            strcmp(sim_config->replacement_policy, "rr") == 0 ? "Round Robin" : "Random");
+    printf("%-30s  %d MB\n",    "Physical Memory:",               sim_config->physical_memory);
+    printf("%-30s  %.1f%%\n",   "Percent Memory Used by System:", sim_config->physical_memory_usage_percentage);
+    printf("%-30s  %.0f\n",     "Instructions / Time Slice:",     sim_config->instructions_per_timeslice);
 
     printf("\n***** Cache Calculated Values *****\n\n");
-    printf("%-30s %d\n",          "Total # Blocks:",              cache_calc->total_blocks);
-    printf("%-30s %d bits\n",     "Tag Size:",                    cache_calc->tag_bits);
-    printf("%-30s %d bits\n",     "Index Size:",                  cache_calc->index_bits);
-    printf("%-30s %d\n",          "Total # Rows:",                cache_calc->total_rows);
-    printf("%-30s %d bytes\n",    "Overhead Size:",               cache_calc->overhead_bytes);
-    printf("%-30s %.2f KB  (%d bytes)\n", "Implementation Memory Size:",
+    printf("%-30s  %d\n",          "Total # Blocks:",              cache_calc->total_blocks);
+    printf("%-30s  %d bits\n",     "Tag Size:",                    cache_calc->tag_bits);
+    printf("%-30s  %d bits\n",     "Index Size:",                  cache_calc->index_bits);
+    printf("%-30s  %d\n",          "Total # Rows:",                cache_calc->total_rows);
+    printf("%-30s  %d bytes\n",    "Overhead Size:",               cache_calc->overhead_bytes);
+    printf("%-30s  %.2f KB  (%d bytes)\n", "Implementation Memory Size:",
            cache_calc->implementation_bytes / 1024.0, cache_calc->implementation_bytes);
-    printf("%-30s $%.2f @ $0.07 per KB\n", "Cost:",              cache_calc->cost);
+    printf("%-30s  $%.2f @ $0.07 per KB\n", "Cost:",              cache_calc->cost);
 
     printf("\n***** Physical Memory Calculated Values *****\n\n");
-    printf("%-30s %d\n",       "Number of Physical Pages:",       physical_calc->num_physical_pages);
-    printf("%-30s %d\n",       "Number of Pages for System:",     physical_calc->num_system_pages);
-    printf("%-30s %d bits\n",  "Size of Page Table Entry:",       physical_calc->pte_bits);
-    printf("%-30s %d bytes\n", "Total RAM for Page Table(s):",    physical_calc->page_table_bytes);
+    printf("%-30s  %ld\n",       "Number of Physical Pages:",       physical_calc->num_physical_pages);
+    printf("%-30s  %ld\n",       "Number of Pages for System:",     physical_calc->num_system_pages);
+    printf("%-30s  %d bits\n",  "Size of Page Table Entry:",       physical_calc->pte_bits);
+    printf("%-30s  %d bytes\n", "Total RAM for Page Table(s):",    physical_calc->page_table_bytes);
 }
 
 
