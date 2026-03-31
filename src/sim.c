@@ -113,7 +113,6 @@ SimConfig* read_args(int argc, char* argv[]) {
                 break;
         }
     }
-    printf("%f\n", sim_config->instructions_per_timeslice);
     return sim_config;
 }
 
@@ -149,7 +148,7 @@ CacheCalc* calculate_cache(SimConfig* sim_config) {
 }
 
 PhysicalCalc* calculate_physical(SimConfig* sim_config) {
-    long num_physical_pages = sim_config->physical_memory * 1024 * 1024 / 4096;
+    long num_physical_pages = (long)sim_config->physical_memory * 1024 * 1024 / 4096;
     long num_system_pages = sim_config->physical_memory_usage_percentage / 100.0 * num_physical_pages;
 
     int physical_page_bits = log2(num_physical_pages);
