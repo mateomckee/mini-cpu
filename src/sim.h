@@ -1,4 +1,5 @@
 #define MAX_TRC_FILES 3
+#define MIN_ARGS 17
 
 typedef struct {
     int cache_size;
@@ -23,8 +24,8 @@ typedef struct {
 } CacheCalc;
 
 typedef struct {
-    int num_physical_pages;
-    int num_system_pages;
+    long num_physical_pages;
+    long num_system_pages;
     int pte_bits;
     int page_table_bytes;
 } PhysicalCalc;
