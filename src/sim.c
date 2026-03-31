@@ -16,12 +16,14 @@ SimConfig* read_args(int argc, char* argv[]) {
         fprintf(stderr, "Error: Memory allocation failed.\n");
         exit(1);
     }
-
     int temp = 0;
     char* endptr;
 
-    for(int i = 1; i < argc; i++) {
-        if(strcmp(argv[i], "–s") == 0) {
+    for(int i = 1; i < argc; i++){
+        if(argv[i][0] != '-'){
+            continue;
+        }
+        if(argv[i][1] == 's'){
             //cache size
             temp = (int)strtol(argv[++i], &endptr, 10);
             if(*endptr != '\0' || temp < 8 || temp > 8192 || ((temp & (temp-1)) != 0)) {
@@ -29,7 +31,7 @@ SimConfig* read_args(int argc, char* argv[]) {
                 exit(1);
             }
             sim_config->cache_size = temp;
-        }else if(strcmp(argv[i], "–b") == 0) {
+        }else if(argv[i][1] == 'b'){
             //block size
             temp = (int)strtol(argv[++i], &endptr, 10);
             if(*endptr != '\0' || temp < 8 || temp > 64 || ((temp & (temp-1)) != 0)) {
@@ -37,7 +39,7 @@ SimConfig* read_args(int argc, char* argv[]) {
                 exit(1);
             }
             sim_config->block_size = temp;
-        }else if(strcmp(argv[i], "–a") == 0) {
+        }else if(argv[i][1] == 'a'){
             //associativity
             temp = (int)strtol(argv[++i], &endptr, 10);
             if(*endptr != '\0' || temp > 16 || temp < 1 || ((temp & (temp-1)) != 0)) {
@@ -45,7 +47,7 @@ SimConfig* read_args(int argc, char* argv[]) {
                 exit(1);
             }
             sim_config->associativity = temp;
-        }else if(strcmp(argv[i], "–r") == 0) {
+        }else if(argv[i][1] == 'r'){
             //replacement policy
             i++;
             if(strcmp(argv[i], "rr") != 0 && strcmp(argv[i], "rnd") != 0) {
@@ -54,13 +56,13 @@ SimConfig* read_args(int argc, char* argv[]) {
             }
 
             //Making sure the string literals are exactly the same as the project guidelines
-            if (strcmp(argv[8], "rr") == 0) {
+            if (strcmp(argv[i], "rr") == 0) {
                 sim_config->replacement_policy = "Round Robin";
             }else {
-                sim_config->replacement_policy = argv[8];
+                sim_config->replacement_policy = argv[i];
             }
             //sim_config->replacement_policy = argv[8];
-        }else if(strcmp(argv[i], "–p") == 0) {
+        }else if(argv[i][1] == 'p'){
             //physical memory
             temp = (int)strtol(argv[++i], &endptr, 10);
             if(*endptr != '\0' || temp < 128 || temp > 4000 || ((temp & (temp-1)) != 0)) {
@@ -68,7 +70,7 @@ SimConfig* read_args(int argc, char* argv[]) {
                 exit(1);
             }
             sim_config->physical_memory = temp;
-        }else if(strcmp(argv[i], "–u") == 0) {
+        }else if(argv[i][1] == 'u'){
             //physical memory usage percentage
             temp = (int)strtol(argv[++i], &endptr, 10);
             if(*endptr != '\0' || temp < 0 || temp > 100) {
@@ -76,7 +78,7 @@ SimConfig* read_args(int argc, char* argv[]) {
                 exit(1);
             }
             sim_config->physical_memory_usage_percentage = temp;
-        }else if(strcmp(argv[i], "–n") == 0) {
+        }else if(argv[i][1] == 'n'){
             //instruction/timeslice
             float f_temp = strtof(argv[++i], &endptr);
             if(*endptr != '\0' || f_temp < 1 || f_temp > 100) {
@@ -84,7 +86,7 @@ SimConfig* read_args(int argc, char* argv[]) {
                 exit(1);
             }
             sim_config->instructions_per_timeslice = f_temp;
-        }else if(strcmp(argv[i], "-f") == 0){
+        }else if(argv[i][1] == 'f'){
             //trace files (min 1, max 3)
             int num_trace_files = (argc - MIN_ARGS)/2 + 1;
 
@@ -95,11 +97,10 @@ SimConfig* read_args(int argc, char* argv[]) {
 
             sim_config->num_trace_files = num_trace_files;
 
-            int i;
-            for(i = 0; i < num_trace_files; i++) {
-                *(sim_config->trace_files+i) = argv[16+(2*i)];
+            int j;
+            for(j = 0; j < num_trace_files; j++) {
+                *(sim_config->trace_files+j) = argv[16+(2*j)];
             }
-            break;
         }
     }
     return sim_config;
