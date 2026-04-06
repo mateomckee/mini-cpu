@@ -8,6 +8,8 @@
 //Group 1
 //Mateo McKee, Elian Garcia Gonzalez, Chinedum Akunne, Ayden Trevino
 
+//GitHub repo: https://github.com/mateomckee/mini-cpu
+
 SimConfig* read_args(int argc, char* argv[]) {
     SimConfig* sim_config = (SimConfig*)malloc(sizeof(SimConfig));
     if(sim_config == NULL) {
