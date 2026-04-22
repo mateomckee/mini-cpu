@@ -1,6 +1,8 @@
 #ifndef SIM_H
 #define SIM_H
 
+#include <stdio.h>
+
 #define MAX_TRC_FILES 3
 #define PAGE_SIZE 4096U
 #define PAGE_TABLE_ENTRIES 524288U
@@ -24,6 +26,8 @@ typedef struct {
     int total_blocks;
     int overhead_bytes;
     int implementation_bytes;
+    int overhead_per_block_bits;
+    double overhead_per_block_bytes;
     float cost;
 } CacheCalc;
 
@@ -52,6 +56,7 @@ typedef struct {
 typedef struct {
     int owner_process;
     unsigned int owner_virtual_page;
+    int allocated;
 } PhysicalPageFrame;
 
 typedef struct {
@@ -60,5 +65,35 @@ typedef struct {
     long pages_from_free;
     long total_page_faults;
 } VmStats;
+
+typedef struct {
+    int valid;
+    unsigned int tag;
+    unsigned int physical_page;
+} CacheLine;
+
+typedef struct {
+    CacheLine *lines;
+    int *rr_next_way;
+    int total_rows;
+    int associativity;
+    int block_size;
+    int offset_bits;
+    int index_bits;
+    int total_blocks;
+} Cache;
+
+typedef struct {
+    long total_cache_accesses;
+    long total_addresses;
+    long instruction_bytes;
+    long srcdst_bytes;
+    long cache_hits;
+    long cache_misses;
+    long compulsory_misses;
+    long conflict_misses;
+    long total_instructions;
+    long long total_cycles;
+} CacheStats;
 
 #endif
