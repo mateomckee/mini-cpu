@@ -16,6 +16,17 @@ static int is_power_of_two(int value) {
     return value > 0 && (value & (value - 1)) == 0;
 }
 
+static int ilog2_int(unsigned int value) {
+    int bits = 0;
+
+    while (value > 1U) {
+        value >>= 1U;
+        bits++;
+    }
+
+    return bits;
+}
+
 static unsigned int extract_virtual_page(unsigned int address) {
     return address / PAGE_SIZE;
 }
@@ -175,9 +186,9 @@ static CacheCalc *calculate_cache(const SimConfig *sim_config) {
 
     total_blocks = (sim_config->cache_size * 1024) / sim_config->block_size;
     total_rows = total_blocks / sim_config->associativity;
-    offset_bits = (int)log2((double)sim_config->block_size);
-    index_bits = (int)log2((double)total_rows);
-    physical_address_bits = (int)log2((double)((long long)sim_config->physical_memory * 1024 * 1024));
+    offset_bits = ilog2_int((unsigned int)sim_config->block_size);
+    index_bits = ilog2_int((unsigned int)total_rows);
+    physical_address_bits = ilog2_int((unsigned int)((long long)sim_config->physical_memory * 1024LL * 1024LL));
     tag_bits = physical_address_bits - index_bits - offset_bits;
 
     output->total_blocks = total_blocks;
@@ -186,6 +197,8 @@ static CacheCalc *calculate_cache(const SimConfig *sim_config) {
     output->index_bits = index_bits;
     output->overhead_bytes = (int)ceil((double)(tag_bits + 1) * total_blocks / 8.0);
     output->implementation_bytes = (sim_config->cache_size * 1024) + output->overhead_bytes;
+    output->overhead_per_block_bits = tag_bits + 1;
+    output->overhead_per_block_bytes = (double)(tag_bits + 1) / 8.0;
     output->cost = (output->implementation_bytes / 1024.0f) * 0.07f;
 
     return output;
@@ -207,7 +220,7 @@ static PhysicalCalc *calculate_physical(const SimConfig *sim_config) {
         num_system_pages = num_physical_pages;
     }
 
-    physical_page_bits = (int)log2((double)num_physical_pages);
+    physical_page_bits = ilog2_int((unsigned int)num_physical_pages);
 
     output->num_physical_pages = num_physical_pages;
     output->num_system_pages = num_system_pages;
@@ -298,10 +311,8 @@ static void free_processes(TraceProcess *processes, int count) {
     free(processes);
 }
 
-static int parse_instruction_line(const char *line, unsigned int *address) {
-    unsigned int length = 0;
-
-    if (sscanf(line, "EIP (%u): %x", &length, address) == 2) {
+static int parse_instruction_line(const char *line, unsigned int *length, unsigned int *address) {
+    if (sscanf(line, "EIP (%u): %x", length, address) == 2) {
         return 1;
     }
 
@@ -334,23 +345,82 @@ static void parse_data_line(const char *line, unsigned int *dst, int *dst_valid,
     }
 }
 
-static void map_virtual_page(TraceProcess *processes,
-                             int process_index,
-                             unsigned int virtual_page,
-                             PhysicalPageFrame *frames,
-                             long user_page_count,
-                             long *next_free_frame,
-                             long *replacement_cursor,
-                             const char *replacement_policy,
-                             VmStats *stats) {
+static int memory_reads_per_block(int block_size) {
+    return (block_size + 3) / 4;
+}
+
+static Cache *create_cache(const SimConfig *sim_config, const CacheCalc *cache_calc) {
+    Cache *cache = malloc(sizeof(Cache));
+
+    if (cache == NULL) {
+        fail("Error: Memory allocation failed.");
+    }
+
+    cache->lines = calloc((size_t)cache_calc->total_blocks, sizeof(CacheLine));
+    cache->rr_next_way = calloc((size_t)cache_calc->total_rows, sizeof(int));
+
+    if (cache->lines == NULL || cache->rr_next_way == NULL) {
+        fail("Error: Memory allocation failed.");
+    }
+
+    cache->total_rows = cache_calc->total_rows;
+    cache->associativity = sim_config->associativity;
+    cache->block_size = sim_config->block_size;
+    cache->offset_bits = ilog2_int((unsigned int)sim_config->block_size);
+    cache->index_bits = cache_calc->index_bits;
+    cache->total_blocks = cache_calc->total_blocks;
+
+    return cache;
+}
+
+static void free_cache(Cache *cache) {
+    if (cache == NULL) {
+        return;
+    }
+
+    free(cache->lines);
+    free(cache->rr_next_way);
+    free(cache);
+}
+
+static void invalidate_physical_page_cache_lines(Cache *cache, unsigned int physical_page) {
+    int total_blocks;
+
+    if (cache == NULL) {
+        return;
+    }
+
+    total_blocks = cache->total_blocks;
+
+    for (int i = 0; i < total_blocks; i++) {
+        if (cache->lines[i].valid && cache->lines[i].physical_page == physical_page) {
+            cache->lines[i].valid = 0;
+        }
+    }
+}
+
+static unsigned int translate_address(TraceProcess *processes,
+                                      int process_index,
+                                      unsigned int virtual_address,
+                                      PhysicalPageFrame *frames,
+                                      long user_page_count,
+                                      long *next_free_frame,
+                                      long *replacement_cursor,
+                                      const char *replacement_policy,
+                                      VmStats *stats,
+                                      Cache *cache,
+                                      int *page_fault_happened) {
+    unsigned int virtual_page = extract_virtual_page(virtual_address);
+    unsigned int offset = virtual_address % PAGE_SIZE;
     PageTableEntry *entry = &processes[process_index].page_table[virtual_page];
     long frame_index;
 
+    *page_fault_happened = 0;
     stats->virtual_pages_mapped++;
 
     if (entry->valid) {
         stats->page_table_hits++;
-        return;
+        return (entry->physical_page * PAGE_SIZE) + offset;
     }
 
     if (*next_free_frame < user_page_count) {
@@ -358,7 +428,9 @@ static void map_virtual_page(TraceProcess *processes,
         (*next_free_frame)++;
         stats->pages_from_free++;
     } else {
+        *page_fault_happened = 1;
         stats->total_page_faults++;
+
         if (strcmp(replacement_policy, "rnd") == 0) {
             frame_index = rand() % user_page_count;
         } else {
@@ -367,20 +439,164 @@ static void map_virtual_page(TraceProcess *processes,
         }
 
         if (frames[frame_index].owner_process >= 0) {
-            TraceProcess *victim_process = &processes[frames[frame_index].owner_process];
-            PageTableEntry *victim_entry = &victim_process->page_table[frames[frame_index].owner_virtual_page];
+            int victim_process_index = frames[frame_index].owner_process;
+            unsigned int victim_virtual_page = frames[frame_index].owner_virtual_page;
+            PageTableEntry *victim_entry = &processes[victim_process_index].page_table[victim_virtual_page];
+
             victim_entry->valid = 0;
-            if (victim_process->used_entries > 0) {
-                victim_process->used_entries--;
+
+            if (processes[victim_process_index].used_entries > 0) {
+                processes[victim_process_index].used_entries--;
             }
+
+            invalidate_physical_page_cache_lines(cache, (unsigned int)frame_index);
         }
     }
 
     entry->valid = 1;
     entry->physical_page = (unsigned int)frame_index;
     processes[process_index].used_entries++;
+
     frames[frame_index].owner_process = process_index;
     frames[frame_index].owner_virtual_page = virtual_page;
+    frames[frame_index].allocated = 1;
+
+    return ((unsigned int)frame_index * PAGE_SIZE) + offset;
+}
+
+static long long access_cache_block(Cache *cache,
+                                    const SimConfig *sim_config,
+                                    unsigned int physical_address,
+                                    CacheStats *cache_stats) {
+    unsigned int block_number = physical_address / (unsigned int)cache->block_size;
+    unsigned int row = block_number % (unsigned int)cache->total_rows;
+    unsigned int tag = block_number / (unsigned int)cache->total_rows;
+    unsigned int physical_page = physical_address / PAGE_SIZE;
+    int set_start = (int)row * cache->associativity;
+    int invalid_line_index = -1;
+    int hit_line_index = -1;
+
+    cache_stats->total_cache_accesses++;
+
+    for (int way = 0; way < cache->associativity; way++) {
+        int line_index = set_start + way;
+
+        if (cache->lines[line_index].valid) {
+            if (cache->lines[line_index].tag == tag) {
+                hit_line_index = line_index;
+                break;
+            }
+        } else if (invalid_line_index == -1) {
+            invalid_line_index = line_index;
+        }
+    }
+
+    if (hit_line_index >= 0) {
+        cache_stats->cache_hits++;
+        return 1;
+    }
+
+    cache_stats->cache_misses++;
+
+    if (invalid_line_index >= 0) {
+        cache_stats->compulsory_misses++;
+        cache->lines[invalid_line_index].valid = 1;
+        cache->lines[invalid_line_index].tag = tag;
+        cache->lines[invalid_line_index].physical_page = physical_page;
+    } else {
+        int selected_way;
+        int line_index;
+
+        cache_stats->conflict_misses++;
+
+        if (strcmp(sim_config->replacement_policy, "rnd") == 0) {
+            selected_way = rand() % cache->associativity;
+        } else {
+            selected_way = cache->rr_next_way[row];
+            cache->rr_next_way[row] = (cache->rr_next_way[row] + 1) % cache->associativity;
+        }
+
+        line_index = set_start + selected_way;
+        cache->lines[line_index].valid = 1;
+        cache->lines[line_index].tag = tag;
+        cache->lines[line_index].physical_page = physical_page;
+    }
+
+    return 4LL * memory_reads_per_block(cache->block_size);
+}
+
+static void process_memory_reference(Cache *cache,
+                                     const SimConfig *sim_config,
+                                     TraceProcess *processes,
+                                     int process_index,
+                                     unsigned int virtual_address,
+                                     unsigned int size_bytes,
+                                     int is_instruction,
+                                     PhysicalPageFrame *frames,
+                                     long user_page_count,
+                                     long *next_free_frame,
+                                     long *replacement_cursor,
+                                     VmStats *vm_stats,
+                                     CacheStats *cache_stats) {
+    unsigned int current_address = virtual_address;
+    unsigned int bytes_remaining = size_bytes;
+
+    cache_stats->total_addresses++;
+
+    if (is_instruction) {
+        cache_stats->instruction_bytes += size_bytes;
+        cache_stats->total_instructions++;
+        cache_stats->total_cycles += 2;
+    } else {
+        cache_stats->srcdst_bytes += size_bytes;
+        cache_stats->total_cycles += 1;
+    }
+
+    while (bytes_remaining > 0U) {
+        unsigned int block_offset = current_address % (unsigned int)cache->block_size;
+        unsigned int bytes_this_block = (unsigned int)cache->block_size - block_offset;
+        unsigned int physical_address;
+        int page_fault_happened = 0;
+
+        if (bytes_this_block > bytes_remaining) {
+            bytes_this_block = bytes_remaining;
+        }
+
+        physical_address = translate_address(processes, process_index, current_address,
+                                             frames, user_page_count, next_free_frame,
+                                             replacement_cursor, sim_config->replacement_policy,
+                                             vm_stats, cache, &page_fault_happened);
+
+        if (page_fault_happened) {
+            cache_stats->total_cycles += 100;
+        }
+
+        cache_stats->total_cycles += access_cache_block(cache, sim_config, physical_address, cache_stats);
+
+        current_address += bytes_this_block;
+        bytes_remaining -= bytes_this_block;
+    }
+}
+
+static void release_process_pages(TraceProcess *processes,
+                                  int process_index,
+                                  PhysicalPageFrame *frames,
+                                  long user_page_count,
+                                  Cache *cache) {
+    for (long i = 0; i < user_page_count; i++) {
+        if (frames[i].allocated && frames[i].owner_process == process_index) {
+            invalidate_physical_page_cache_lines(cache, (unsigned int)i);
+            frames[i].owner_process = -1;
+            frames[i].owner_virtual_page = 0;
+            frames[i].allocated = 0;
+        }
+    }
+
+    for (unsigned int vp = 0; vp < PAGE_TABLE_ENTRIES; vp++) {
+        if (processes[process_index].page_table[vp].valid) {
+            processes[process_index].page_table[vp].valid = 0;
+        }
+    }
 }
 
 static int process_trace_instruction(TraceProcess *processes,
@@ -389,10 +605,13 @@ static int process_trace_instruction(TraceProcess *processes,
                                      long user_page_count,
                                      long *next_free_frame,
                                      long *replacement_cursor,
-                                     const char *replacement_policy,
-                                     VmStats *stats) {
+                                     const SimConfig *sim_config,
+                                     VmStats *vm_stats,
+                                     Cache *cache,
+                                     CacheStats *cache_stats) {
     char instruction_line[512];
     char data_line[512];
+    unsigned int instruction_length = 0;
     unsigned int instruction_address = 0;
     unsigned int dst_address = 0;
     unsigned int src_address = 0;
@@ -400,7 +619,7 @@ static int process_trace_instruction(TraceProcess *processes,
     int src_valid = 0;
 
     while (fgets(instruction_line, sizeof(instruction_line), processes[process_index].file) != NULL) {
-        if (!parse_instruction_line(instruction_line, &instruction_address)) {
+        if (!parse_instruction_line(instruction_line, &instruction_length, &instruction_address)) {
             continue;
         }
 
@@ -411,20 +630,23 @@ static int process_trace_instruction(TraceProcess *processes,
 
         parse_data_line(data_line, &dst_address, &dst_valid, &src_address, &src_valid);
 
-        map_virtual_page(processes, process_index, extract_virtual_page(instruction_address),
-                         frames, user_page_count, next_free_frame, replacement_cursor,
-                         replacement_policy, stats);
+        process_memory_reference(cache, sim_config, processes, process_index,
+                                 instruction_address, instruction_length, 1,
+                                 frames, user_page_count, next_free_frame,
+                                 replacement_cursor, vm_stats, cache_stats);
 
         if (dst_valid) {
-            map_virtual_page(processes, process_index, extract_virtual_page(dst_address),
-                             frames, user_page_count, next_free_frame, replacement_cursor,
-                             replacement_policy, stats);
+            process_memory_reference(cache, sim_config, processes, process_index,
+                                     dst_address, 4, 0,
+                                     frames, user_page_count, next_free_frame,
+                                     replacement_cursor, vm_stats, cache_stats);
         }
 
         if (src_valid) {
-            map_virtual_page(processes, process_index, extract_virtual_page(src_address),
-                             frames, user_page_count, next_free_frame, replacement_cursor,
-                             replacement_policy, stats);
+            process_memory_reference(cache, sim_config, processes, process_index,
+                                     src_address, 4, 0,
+                                     frames, user_page_count, next_free_frame,
+                                     replacement_cursor, vm_stats, cache_stats);
         }
 
         return 1;
@@ -434,10 +656,12 @@ static int process_trace_instruction(TraceProcess *processes,
     return 0;
 }
 
-static VmStats run_virtual_memory(const SimConfig *sim_config,
-                                  const PhysicalCalc *physical_calc,
-                                  TraceProcess *processes) {
-    VmStats stats = {0, 0, 0, 0};
+static void run_simulation(const SimConfig *sim_config,
+                           const PhysicalCalc *physical_calc,
+                           TraceProcess *processes,
+                           Cache *cache,
+                           VmStats *vm_stats,
+                           CacheStats *cache_stats) {
     PhysicalPageFrame *frames = NULL;
     long next_free_frame = 0;
     long replacement_cursor = 0;
@@ -455,6 +679,7 @@ static VmStats run_virtual_memory(const SimConfig *sim_config,
     for (long i = 0; i < physical_calc->num_user_pages; i++) {
         frames[i].owner_process = -1;
         frames[i].owner_virtual_page = 0;
+        frames[i].allocated = 0;
     }
 
     while (active_processes > 0) {
@@ -469,7 +694,8 @@ static VmStats run_virtual_memory(const SimConfig *sim_config,
             while (limit == -1 || instructions_this_slice < limit) {
                 if (!process_trace_instruction(processes, i, frames, physical_calc->num_user_pages,
                                                &next_free_frame, &replacement_cursor,
-                                               sim_config->replacement_policy, &stats)) {
+                                               sim_config, vm_stats, cache, cache_stats)) {
+                    release_process_pages(processes, i, frames, physical_calc->num_user_pages, cache);
                     active_processes--;
                     break;
                 }
@@ -479,7 +705,6 @@ static VmStats run_virtual_memory(const SimConfig *sim_config,
     }
 
     free(frames);
-    return stats;
 }
 
 static void print_milestone2(const SimConfig *sim_config,
@@ -511,12 +736,71 @@ static void print_milestone2(const SimConfig *sim_config,
     }
 }
 
+static void print_milestone3(const CacheCalc *cache_calc,
+                             const CacheStats *cache_stats) {
+    double hit_rate = 0.0;
+    double miss_rate = 0.0;
+    double cpi = 0.0;
+    int total_blocks = cache_calc->total_blocks;
+    int unused_blocks;
+    double unused_kb;
+    double unused_percent;
+    double waste_cost;
+
+    if (cache_stats->total_cache_accesses > 0) {
+        hit_rate = ((double)cache_stats->cache_hits * 100.0) / (double)cache_stats->total_cache_accesses;
+        miss_rate = 100.0 - hit_rate;
+    }
+
+    if (cache_stats->total_instructions > 0) {
+        cpi = (double)cache_stats->total_cycles / (double)cache_stats->total_instructions;
+    }
+
+    unused_blocks = total_blocks - (int)cache_stats->compulsory_misses;
+    if (unused_blocks < 0) {
+        unused_blocks = 0;
+    }
+
+    unused_kb = (unused_blocks * (((double)cache_calc->implementation_bytes / (double)cache_calc->total_blocks))) / 1024.0;
+    unused_percent = (cache_calc->implementation_bytes > 0)
+        ? (unused_kb / (cache_calc->implementation_bytes / 1024.0)) * 100.0
+        : 0.0;
+    waste_cost = unused_kb * 0.07;
+
+    printf("\n\nMILESTONE #3: - Cache Simulation Results\n\n");
+printf("***** CACHE SIMULATION RESULTS *****\n\n");
+printf("%-30s  %ld  (%ld addresses)\n",
+       "Total Cache Accesses:",
+       cache_stats->total_cache_accesses,
+       cache_stats->total_addresses);
+printf("%-30s  %ld\n", "--- Instruction Bytes:", cache_stats->instruction_bytes);
+printf("%-30s  %ld\n", "--- SrcDst Bytes:", cache_stats->srcdst_bytes);
+printf("%-30s  %ld\n", "Cache Hits:", cache_stats->cache_hits);
+printf("%-30s  %ld\n", "Cache Misses:", cache_stats->cache_misses);
+printf("%-30s  %ld\n", "--- Compulsory Misses:", cache_stats->compulsory_misses);
+printf("%-30s  %ld\n", "--- Conflict Misses:", cache_stats->conflict_misses);
+
+printf("\n\n***** *****  CACHE HIT & MISS RATE:  ***** *****\n\n");
+printf("%-30s  %.4f%%\n", "Hit  Rate:", hit_rate);
+printf("%-30s  %.4f%%\n", "Miss Rate:", miss_rate);
+printf("%-30s  %.2f Cycles/Instruction  (%lld)\n", "CPI:", cpi, cache_stats->total_cycles);
+printf("%-30s  %.2f KB / %.2f KB = %.2f%%  Waste: $%.2f/chip\n",
+       "Unused Cache Space:",
+       unused_kb,
+       cache_calc->implementation_bytes / 1024.0,
+       unused_percent,
+       waste_cost);
+printf("%-30s  %d / %d\n", "Unused Cache Blocks:", unused_blocks, total_blocks);
+}
+
 int main(int argc, char *argv[]) {
     SimConfig *sim_config;
     CacheCalc *cache_calc;
     PhysicalCalc *physical_calc;
     TraceProcess *processes;
-    VmStats vm_stats;
+    Cache *cache;
+    VmStats vm_stats = {0, 0, 0, 0};
+    CacheStats cache_stats = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
     srand((unsigned int)time(NULL));
 
@@ -524,11 +808,14 @@ int main(int argc, char *argv[]) {
     cache_calc = calculate_cache(sim_config);
     physical_calc = calculate_physical(sim_config);
     processes = init_processes(sim_config);
+    cache = create_cache(sim_config, cache_calc);
 
     print_milestone1(sim_config, cache_calc, physical_calc);
-    vm_stats = run_virtual_memory(sim_config, physical_calc, processes);
+    run_simulation(sim_config, physical_calc, processes, cache, &vm_stats, &cache_stats);
     print_milestone2(sim_config, physical_calc, processes, &vm_stats);
+    print_milestone3(cache_calc, &cache_stats);
 
+    free_cache(cache);
     free_processes(processes, sim_config->num_trace_files);
     free(sim_config);
     free(cache_calc);
